@@ -720,9 +720,9 @@ API returns 200 with correct payload" style="min-height:80px"></textarea>
 <script>
 /* ── Google Apps Script API integration ── */
 // STEP 1: Replace this URL with your deployed Apps Script Web App URL
-const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbz4O9zXqmQOmX-DYL0yCllNjGfPE7kGt234ny6x5B8AU9wOmwzSLcSUbX-Zrbb0Iec/exec';
+const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzP0-i8BkSKqDtJVOAY6qrTvnZsF3_ib0MxqEj6QD92Sgk2ChXsMLSWrbUWXzgcfToJ/exec';
 
-let _apiReady = !!APPS_SCRIPT_URL && APPS_SCRIPT_URL !== 'YOUR_APPS_SCRIPT_URL_HERE';
+let _apiReady = !!APPS_SCRIPT_URL && APPS_SCRIPT_URL !== 'https://script.google.com/macros/s/AKfycbzP0-i8BkSKqDtJVOAY6qrTvnZsF3_ib0MxqEj6QD92Sgk2ChXsMLSWrbUWXzgcfToJ/exec';
 
 // Fallback local store (used for username + version history only)
 const _store=(()=>{
@@ -741,18 +741,24 @@ const _store=(()=>{
 })();
 
 async function apiLoad(){
-  const res=await fetch(APPS_SCRIPT_URL+'?action=load');
+  const controller=new AbortController();
+  const tid=setTimeout(()=>controller.abort(),10000);
+  const res=await fetch(APPS_SCRIPT_URL+'?action=load',{signal:controller.signal});
+  clearTimeout(tid);
   const json=await res.json();
   if(!json.ok) throw new Error(json.error);
   return json.data;
 }
 
 async function apiSave(data){
-  await fetch(APPS_SCRIPT_URL+'?action=save',{
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify(data)
-  });
+  const controller=new AbortController();
+  const tid=setTimeout(()=>controller.abort(),20000);
+  // Use GET with encoded body to avoid CORS preflight (OPTIONS) which Apps Script blocks
+  const encoded=encodeURIComponent(JSON.stringify(data));
+  const res=await fetch(APPS_SCRIPT_URL+'?action=save&body='+encoded,{signal:controller.signal});
+  clearTimeout(tid);
+  const json=await res.json();
+  if(!json.ok) throw new Error(json.error||'Save failed');
 }
 
 /* ── Custom confirm/prompt (replaces browser dialogs blocked in Google Sites) ── */
@@ -849,8 +855,9 @@ const DEFAULT={
 };
 
 function loadData(){
-  // API mode: returns DEFAULT synchronously; actual load happens async in initApp()
-  // This is called at boot before API is ready, so return DEFAULT as placeholder
+  // If API is configured, skip INJECTED data — we'll load fresh from API in initApp()
+  // INJECTED is stale baked-in data and must not override the live API data
+  if(_apiReady) return JSON.parse(JSON.stringify(DEFAULT));
   let injected=null;
   try{if(typeof INJECTED!=='undefined'&&INJECTED)injected=JSON.parse(JSON.stringify(INJECTED));}catch(e){}
   return injected || JSON.parse(JSON.stringify(DEFAULT));
@@ -910,14 +917,28 @@ function saveData(changeDesc){
   cleanData();
   if(changeDesc) logChange(changeDesc);
   const payload={teams,suites,testcases,plans,counter,planCounter,runCounter,teamCounter};
-  if(_apiReady){
-    apiSave(payload).catch(e=>console.warn('API save failed:',e));
-  } else {
-    // Fallback to localStorage if API not configured
-    try{_store.setItem(STORAGE_KEY,JSON.stringify(payload));}catch(e){}
-  }
   const b=document.getElementById('savedBadge');
-  b.classList.add('show');clearTimeout(b._t);b._t=setTimeout(()=>b.classList.remove('show'),2000);
+  if(_apiReady){
+    // Show "Saving…" until API confirms
+    b.textContent='Saving…';
+    b.classList.add('show');
+    clearTimeout(b._t);
+    apiSave(payload).then(()=>{
+      b.textContent='Saved';
+      clearTimeout(b._t);
+      b._t=setTimeout(()=>{b.classList.remove('show');b.textContent='Saved';},2000);
+    }).catch(e=>{
+      console.warn('API save failed:',e);
+      b.textContent='Save failed';
+      b._t=setTimeout(()=>{b.classList.remove('show');b.textContent='Saved';},3000);
+    });
+  } else {
+    try{_store.setItem(STORAGE_KEY,JSON.stringify(payload));}catch(e){}
+    b.textContent='Saved';
+    b.classList.add('show');
+    clearTimeout(b._t);
+    b._t=setTimeout(()=>b.classList.remove('show'),2000);
+  }
 }
 
 /* TCM_INJECTED_START */
@@ -2456,24 +2477,32 @@ initUsername();
       document.head.appendChild(st);
     }
 
+    // Safety net: always remove overlay after 15s max
+    const safetyTimer=setTimeout(()=>{
+      console.warn('API timeout — proceeding with cached data');
+      overlay.remove();
+      showUserScreen();
+    }, 15000);
+
     try{
       const apiData=await loadDataFromAPI();
-      if(apiData && Object.keys(apiData).length){
-        // Replace in-memory data with API data
-        teams     = apiData.teams      || teams;
-        suites    = apiData.suites     || suites;
-        testcases = apiData.testcases  || testcases;
-        plans     = apiData.plans      || plans;
-        counter      = apiData.counter      || counter;
-        planCounter  = apiData.planCounter  || planCounter;
-        runCounter   = apiData.runCounter   || runCounter;
-        teamCounter  = apiData.teamCounter  || teamCounter;
+      if(apiData && typeof apiData==='object' && Object.keys(apiData).length){
+        teams        = apiData.teams       || teams;
+        suites       = apiData.suites      || suites;
+        testcases    = apiData.testcases   || testcases;
+        plans        = apiData.plans       || plans;
+        counter      = apiData.counter     || counter;
+        planCounter  = apiData.planCounter || planCounter;
+        runCounter   = apiData.runCounter  || runCounter;
+        teamCounter  = apiData.teamCounter || teamCounter;
         if(!teamCounter) teamCounter=(teams||[]).length+1;
       }
     }catch(e){
-      console.warn('Could not load from API, using local data',e);
+      console.warn('Could not load from API, using cached data:',e);
     }finally{
-      overlay.remove();
+      clearTimeout(safetyTimer);
+      const ov=document.getElementById('tcm-loading');
+      if(ov) ov.remove();
       showUserScreen();
     }
   } else {
