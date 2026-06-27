@@ -712,8 +712,8 @@ API returns 200 with correct payload" style="min-height:80px"></textarea>
   </div>
 </div>
 
-<div class="toast show" id="toast">
-  <span id="toast-msg">JSON exported — 8 test cases</span>
+<div class="toast" id="toast">
+  <span id="toast-msg"></span>
   <button class="toast-close" onclick="dismissToast()" aria-label="Close">✕</button>
 </div>
 
@@ -723,6 +723,7 @@ API returns 200 with correct payload" style="min-height:80px"></textarea>
 const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzvXEWpE_0pUG985n5etsH3SGklIscnAcnwDWhi5WsQpDwHhSoBSLrB1GWkuShGcoSB/exec';
 
 let _apiReady = !!APPS_SCRIPT_URL && APPS_SCRIPT_URL !== 'YOUR_APPS_SCRIPT_URL_HERE';
+let _apiVersions = []; // version history loaded from API
 console.log('[TCM] API ready:', _apiReady, '| URL:', APPS_SCRIPT_URL);
 
 // Fallback local store (used for username + version history only)
@@ -916,6 +917,8 @@ let _savingVersion = false;
 function saveData(changeDesc){
   cleanData();
   if(changeDesc) logChange(changeDesc);
+  // Auto-save a version snapshot on every change (not just Save HTML)
+  if(changeDesc) saveVersion(null, _sessionChanges.slice());
   const payload={teams,suites,testcases,plans,counter,planCounter,runCounter,teamCounter};
   const b=document.getElementById('savedBadge');
   if(_apiReady){
@@ -2166,14 +2169,20 @@ function saveVersion(label, changeDesc){
     versions=versions.slice(0, Math.floor(VH_MAX/2));
     try{ _store.setItem(VH_KEY, JSON.stringify(versions)); }catch(e2){}
   }
+  // Also persist versions to API alongside main data
+  if(_apiReady){
+    const payload={teams,suites,testcases,plans,counter,planCounter,runCounter,teamCounter,_versions:versions};
+    apiSave(payload).catch(e=>console.warn('Version history save failed:',e));
+  }
 }
 
 function loadVersions(){
-  // Merge: localStorage (this machine's sessions) + INJECTED_VERSIONS (baked in from sharer)
   let local=[];
   let injected=[];
   try{ const r=_store.getItem(VH_KEY); if(r) local=JSON.parse(r); }catch(e){}
   try{ if(typeof INJECTED_VERSIONS!=='undefined') injected=INJECTED_VERSIONS; }catch(e){}
+  // Also include versions saved to API (loaded at boot into _apiVersions)
+  if(typeof _apiVersions!=='undefined' && Array.isArray(_apiVersions)) injected=[..._apiVersions,...injected];
   // Merge by timestamp — deduplicate, sort newest first
   const all=[...local,...injected];
   const seen=new Set();
@@ -2496,6 +2505,8 @@ initUsername();
         runCounter   = apiData.runCounter  || runCounter;
         teamCounter  = apiData.teamCounter || teamCounter;
         if(!teamCounter) teamCounter=(teams||[]).length+1;
+        // Load version history from API
+        if(Array.isArray(apiData._versions)) _apiVersions = apiData._versions;
       }
     }catch(e){
       console.warn('Could not load from API, using cached data:',e);
