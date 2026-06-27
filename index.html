@@ -720,9 +720,9 @@ API returns 200 with correct payload" style="min-height:80px"></textarea>
 <script>
 /* ── Google Apps Script API integration ── */
 // STEP 1: Replace this URL with your deployed Apps Script Web App URL
-const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzP0-i8BkSKqDtJVOAY6qrTvnZsF3_ib0MxqEj6QD92Sgk2ChXsMLSWrbUWXzgcfToJ/exec';
+const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzvXEWpE_0pUG985n5etsH3SGklIscnAcnwDWhi5WsQpDwHhSoBSLrB1GWkuShGcoSB/exec';
 
-let _apiReady = !!APPS_SCRIPT_URL && APPS_SCRIPT_URL !== 'https://script.google.com/macros/s/AKfycbzP0-i8BkSKqDtJVOAY6qrTvnZsF3_ib0MxqEj6QD92Sgk2ChXsMLSWrbUWXzgcfToJ/exec';
+let _apiReady = !!APPS_SCRIPT_URL && APPS_SCRIPT_URL !== 'YOUR_APPS_SCRIPT_URL_HERE';
 
 // Fallback local store (used for username + version history only)
 const _store=(()=>{
@@ -753,7 +753,6 @@ async function apiLoad(){
 async function apiSave(data){
   const controller=new AbortController();
   const tid=setTimeout(()=>controller.abort(),20000);
-  // Use GET with encoded body to avoid CORS preflight (OPTIONS) which Apps Script blocks
   const encoded=encodeURIComponent(JSON.stringify(data));
   const res=await fetch(APPS_SCRIPT_URL+'?action=save&body='+encoded,{signal:controller.signal});
   clearTimeout(tid);
