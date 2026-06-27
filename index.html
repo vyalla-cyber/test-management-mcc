@@ -723,6 +723,7 @@ API returns 200 with correct payload" style="min-height:80px"></textarea>
 const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzvXEWpE_0pUG985n5etsH3SGklIscnAcnwDWhi5WsQpDwHhSoBSLrB1GWkuShGcoSB/exec';
 
 let _apiReady = !!APPS_SCRIPT_URL && APPS_SCRIPT_URL !== 'YOUR_APPS_SCRIPT_URL_HERE';
+console.log('[TCM] API ready:', _apiReady, '| URL:', APPS_SCRIPT_URL);
 
 // Fallback local store (used for username + version history only)
 const _store=(()=>{
