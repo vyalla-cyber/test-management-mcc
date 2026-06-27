@@ -720,7 +720,7 @@ API returns 200 with correct payload" style="min-height:80px"></textarea>
 <script>
 /* ── Google Apps Script API integration ── */
 // STEP 1: Replace this URL with your deployed Apps Script Web App URL
-const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxTM7ROsZm-vLnDEZnrFAPe2Q_Wiu-Ye1g9Nn0d3IW6Y5RqOXlJ8LYYfnJKUlGT3-_P/exec';
+const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwB8rwxMPECGPD1tP4vSS72yVsnIMVlOmUnPxEWgSAGknKKC7fG2u3SxUWKoo72ynT4/exec';
 
 let _apiReady = !!APPS_SCRIPT_URL && APPS_SCRIPT_URL !== 'YOUR_APPS_SCRIPT_URL_HERE';
 let _apiVersions = []; // version history loaded from API
@@ -755,35 +755,11 @@ async function apiLoad(){
 async function apiSave(data){
   const controller=new AbortController();
   const tid=setTimeout(()=>controller.abort(),30000);
-  const body=JSON.stringify(data);
-  const encoded=encodeURIComponent(body);
-
-  // If payload is small enough, use single GET request
-  if(encoded.length < 6000){
-    const res=await fetch(APPS_SCRIPT_URL+'?action=save&body='+encoded,{signal:controller.signal});
-    clearTimeout(tid);
-    const json=await res.json();
-    if(!json.ok) throw new Error(json.error||'Save failed');
-    return;
-  }
-
-  // For large payloads: split into chunks and send sequentially
-  const CHUNK=4000;
-  const chunks=[];
-  for(let i=0;i<encoded.length;i+=CHUNK) chunks.push(encoded.substring(i,i+CHUNK));
-  const saveId='s'+Date.now();
-
-  for(let i=0;i<chunks.length;i++){
-    const url=APPS_SCRIPT_URL+'?action=chunk'
-      +'&id='+saveId
-      +'&i='+i
-      +'&total='+chunks.length
-      +'&body='+chunks[i];
-    const res=await fetch(url,{signal:controller.signal});
-    const json=await res.json();
-    if(!json.ok) throw new Error('Chunk '+i+' failed: '+(json.error||''));
-  }
+  const encoded=encodeURIComponent(JSON.stringify(data));
+  const res=await fetch(APPS_SCRIPT_URL+'?action=save&body='+encoded,{signal:controller.signal});
   clearTimeout(tid);
+  const json=await res.json();
+  if(!json.ok) throw new Error(json.error||'Save failed');
 }
 
 /* ── Custom confirm/prompt (replaces browser dialogs blocked in Google Sites) ── */
@@ -2168,15 +2144,12 @@ function saveVersion(label, changeDesc){
   cleanData();
   const changes = Array.isArray(changeDesc) ? changeDesc
     : (changeDesc ? [changeDesc] : []);
+  // Store metadata only — no full snapshot data (avoids massive payload)
   const snap={
-    ts:         Date.now(),
-    label:      label||null,
-    changes:    changes,
-    user:       getUsername()||null,
-    teams:      JSON.parse(JSON.stringify(teams)),
-    suites:     JSON.parse(JSON.stringify(suites)),
-    testcases:  JSON.parse(JSON.stringify(testcases)),
-    plans:      JSON.parse(JSON.stringify(plans)),
+    ts:      Date.now(),
+    label:   label||null,
+    changes: changes,
+    user:    getUsername()||null,
     stats:{
       teams:     teams.length,
       suites:    suites.length,
