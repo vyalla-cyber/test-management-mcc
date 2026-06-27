@@ -720,7 +720,7 @@ API returns 200 with correct payload" style="min-height:80px"></textarea>
 <script>
 /* ── Google Apps Script API integration ── */
 // STEP 1: Replace this URL with your deployed Apps Script Web App URL
-const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzvXEWpE_0pUG985n5etsH3SGklIscnAcnwDWhi5WsQpDwHhSoBSLrB1GWkuShGcoSB/exec';
+const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwZWTF_2lv6hs36j4MZa0n6HUXIvVXxflffVLFIWXSNBkAr4kh_4V7KwIVebvqZeJXc/exec';
 
 let _apiReady = !!APPS_SCRIPT_URL && APPS_SCRIPT_URL !== 'YOUR_APPS_SCRIPT_URL_HERE';
 let _apiVersions = []; // version history loaded from API
@@ -754,12 +754,36 @@ async function apiLoad(){
 
 async function apiSave(data){
   const controller=new AbortController();
-  const tid=setTimeout(()=>controller.abort(),20000);
-  const encoded=encodeURIComponent(JSON.stringify(data));
-  const res=await fetch(APPS_SCRIPT_URL+'?action=save&body='+encoded,{signal:controller.signal});
+  const tid=setTimeout(()=>controller.abort(),30000);
+  const body=JSON.stringify(data);
+  const encoded=encodeURIComponent(body);
+
+  // If payload is small enough, use single GET request
+  if(encoded.length < 6000){
+    const res=await fetch(APPS_SCRIPT_URL+'?action=save&body='+encoded,{signal:controller.signal});
+    clearTimeout(tid);
+    const json=await res.json();
+    if(!json.ok) throw new Error(json.error||'Save failed');
+    return;
+  }
+
+  // For large payloads: split into chunks and send sequentially
+  const CHUNK=4000;
+  const chunks=[];
+  for(let i=0;i<encoded.length;i+=CHUNK) chunks.push(encoded.substring(i,i+CHUNK));
+  const saveId='s'+Date.now();
+
+  for(let i=0;i<chunks.length;i++){
+    const url=APPS_SCRIPT_URL+'?action=chunk'
+      +'&id='+saveId
+      +'&i='+i
+      +'&total='+chunks.length
+      +'&body='+chunks[i];
+    const res=await fetch(url,{signal:controller.signal});
+    const json=await res.json();
+    if(!json.ok) throw new Error('Chunk '+i+' failed: '+(json.error||''));
+  }
   clearTimeout(tid);
-  const json=await res.json();
-  if(!json.ok) throw new Error(json.error||'Save failed');
 }
 
 /* ── Custom confirm/prompt (replaces browser dialogs blocked in Google Sites) ── */
@@ -919,7 +943,7 @@ function saveData(changeDesc){
   if(changeDesc) logChange(changeDesc);
   // Auto-save a version snapshot on every change (not just Save HTML)
   if(changeDesc) saveVersion(null, _sessionChanges.slice());
-  const payload={teams,suites,testcases,plans,counter,planCounter,runCounter,teamCounter};
+  const payload={teams,suites,testcases,plans,counter,planCounter,runCounter,teamCounter,_versions:_apiVersions};
   const b=document.getElementById('savedBadge');
   if(_apiReady){
     // Show "Saving…" until API confirms
@@ -2169,11 +2193,8 @@ function saveVersion(label, changeDesc){
     versions=versions.slice(0, Math.floor(VH_MAX/2));
     try{ _store.setItem(VH_KEY, JSON.stringify(versions)); }catch(e2){}
   }
-  // Also persist versions to API alongside main data
-  if(_apiReady){
-    const payload={teams,suites,testcases,plans,counter,planCounter,runCounter,teamCounter,_versions:versions};
-    apiSave(payload).catch(e=>console.warn('Version history save failed:',e));
-  }
+  // _apiVersions is kept in sync here; actual API save happens in saveData
+  _apiVersions = versions;
 }
 
 function loadVersions(){
